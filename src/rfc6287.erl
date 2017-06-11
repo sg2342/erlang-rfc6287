@@ -160,12 +160,14 @@ p_di_ts1(TS, Acc) -> lists:reverse([{t, TS}| Acc]).
 p_di_ts2([]) -> 60;
 p_di_ts2([X, $S]) -> p_len([X], 1, 59);
 p_di_ts2([X1, X2, $S]) -> p_len([X1, X2], 1, 59);
-p_di_ts2([X, $M]) -> p_len([X], 1, 59) * 60;
-p_di_ts2([X1, X2, $M]) -> p_len([X1, X2], 1, 59) * 60;
-p_di_ts2([X, $H]) -> p_len([X], 1, 59) * 60;
-p_di_ts2([X1, X2, $H]) -> p_len([X1, X2], 0, 48) * 3600;
+p_di_ts2([X, $M]) -> p_di_ts3(p_len([X], 1, 59), 60);
+p_di_ts2([X1, X2, $M]) -> p_di_ts3(p_len([X1, X2], 1, 59), 60);
+p_di_ts2([X, $H]) -> p_di_ts3(p_len([X], 1, 59), 60);
+p_di_ts2([X1, X2, $H]) -> p_di_ts3(p_len([X1, X2], 0, 48), 3600);
 p_di_ts2(_) -> false.
 
+p_di_ts3(false,_) -> false;
+p_di_ts3(X, Y) -> X * Y.
 
 p_len(S, Min, Max) ->
     try plen1(list_to_integer(S), Min, Max) catch error:badarg -> false end.
