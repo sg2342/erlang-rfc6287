@@ -1,0 +1,16 @@
+{application, rfc6287,
+ [{description, "RFC6287 OCRA (OATH Challenge-Response Algorithm)"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib,
+    crypto
+   ]},
+  {env,[]},
+  {modules, [rfc6287]},
+
+  {maintainers, []},
+  {licenses, []},
+  {links, []}
+ ]}.
