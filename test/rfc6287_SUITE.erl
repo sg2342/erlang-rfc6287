@@ -207,7 +207,8 @@ fail_invalid_suite(_) ->
     E = rfc6287:challenge(<<"OCRA-1:HOTP-SHA512-8:QA08-Pfoo">>),
     E = rfc6287:challenge(<<"OCRA-1:HOTP-SHA512-8:QA08-Sabd">>),
     E = rfc6287:challenge(<<"OCRA-1:HOTP-SHA512-8:QA08-S123-T-foo">>),
-    E = rfc6287:challenge(<<"OCRA-1:HOTP-SHA512-8:QA08-S123-TX1">>).
+    E = rfc6287:challenge(<<"OCRA-1:HOTP-SHA512-8:QA08-S123-T999H">>),
+    E = rfc6287:challenge(<<"OCRA-1:HOTP-SHA512-8:QA08-S123-T99H">>).
 
 parse_timesteps(_) ->
     ct:comment("parse various timesteps"),
@@ -253,6 +254,12 @@ fail_invalid_data_input(_) ->
 
 
 generate(_) ->
+    %% pad in truncate
+    {ok, <<"0958035737">>} =
+	rfc6287:generate(?Key20,
+			 #{suite => <<"OCRA-1:HOTP-SHA1-10:QH08">>
+			  ,q => <<"D0DD18F3">>}),
+    %% calc timestamp
     {ok, _} = rfc6287:generate(?Key32,
 			       #{suite => <<"OCRA-1:HOTP-SHA512-0:C-QA08-T">>
 				,c => 0
