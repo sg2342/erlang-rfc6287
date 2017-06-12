@@ -70,32 +70,118 @@ challenge2($H, B) -> bin2hex(binary:part(B, 0, size(B) div 2)).
 		      {error, invalid_suite | invalid_key | invalid_data_input}.
 generate(K, #{suite := Suite} = DataInput) ->
     Maybe = parse(Suite),
-    generate1(Maybe, K, DataInput).
+    generate1(Maybe, {K, DataInput}).
 
-generate1(false, _, _) -> {error, invalid_suite};
-generate1({{Alg, _Truncation}, _DI} = Parsed, K, DataInput) ->
+generate1(false, _) -> {error, invalid_suite};
+generate1({{Alg, _Truncation}, _DI} = Parsed, {K, DataInput}) ->
     Maybe = fmt_key(dgst_sz(Alg), K),
-    generate2(Maybe, Parsed, DataInput).
+    generate2(Maybe, {Parsed, DataInput}).
 
-generate2(false, _, _) -> {error, invalid_key};
-generate2(Key, {{Alg, Truncation}, DIP}, DataInput) ->
+generate2(false, _) -> {error, invalid_key};
+generate2(Key, {{{Alg, Truncation}, DIP}, DataInput}) ->
     Maybe = data(DIP, DataInput),
-    generate3(Maybe, Key, Alg, Truncation).
+    generate3(Maybe, {Key, Alg, Truncation}).
 
-generate3(false, _, _, _) -> {error, invalid_data_input};
-generate3(Data, Key, Alg, Truncation) ->
+generate3(false, _) -> {error, invalid_data_input};
+generate3(Data, {Key, Alg, Truncation}) ->
     Bin = crypto:hmac(Alg, Key, Data),
     {ok, truncate(Truncation, Bin)}.
 
 
 %% @doc
 %% Verify OCRA Response
--spec verify(key(), data_input(), Response :: ocra(),
+-spec verify(key(), data_input(), ocra(),
 	     VerifyParams :: #{cw => counter_window()
 			      ,tw => timestep_window()}) ->
-		    ok | {ok, New_Counter :: counter()} | {error, _}.
-verify(_Key, _DataInput, _Response, _VerifyOpts) ->
-    {error, not_implemented}.
+		    ok | {ok, New_Counter :: counter()} |
+		    {error, failed} |
+		    {error, invalid_suite | invalid_key | invalid_verify_opts}.
+verify(K, #{suite := Suite} = DataInput, OCRA, VerifyOpts) ->
+    Maybe = parse(Suite),
+    verify1(Maybe, {K, DataInput, OCRA, VerifyOpts}).
+
+verify1(false, _) -> {error, invalid_suite};
+verify1({_, DIP} = Parsed, {K, DataInput, OCRA, VerifyOpts}) ->
+    Maybe = vopts(DIP, VerifyOpts),
+    verify2(Maybe, {Parsed, K, DataInput, OCRA}).
+
+verify2(false, _) -> {error, invalid_verify_opts};
+verify2(Vopts, {Parsed, K, DataInput, OCRA}) ->
+    {{Alg, _Truncation}, _DIP} = Parsed,
+    Maybe = fmt_key(dgst_sz(Alg), K),
+    verify3(Maybe, {Parsed, DataInput, OCRA, Vopts}).
+
+verify3(false, _) -> {error, invalid_key};
+verify3(K, {Parsed, DataInput, OCRA, Vopts}) ->
+    {{_Alg, _Truncation}, DIP} = Parsed,
+    Maybe = data(DIP, DataInput),
+    verify4(Maybe, {K, Parsed, DataInput, OCRA, Vopts}).
+
+verify4(false, _) -> {error, invalid_data_input};
+verify4(Data, {K, {_, DIP} = Parsed, #{t := calc}=DataInput0, OCRA, Vopts}) ->
+    {t, V} = lists:keyfind(t,1,DIP),
+    DataInput=DataInput0#{t => fmt_ts(V)},
+    verify5(Data, K, Parsed, DataInput, OCRA, Vopts);
+verify4(Data, {K, Parsed, DataInput, OCRA, Vopts}) ->
+    verify5(Data, K, Parsed, DataInput, OCRA, Vopts).
+
+
+verify5(Data, K, {{Alg, Truncation},_DIP}, _, OCRA, []) ->
+    Bin0 = crypto:hmac(Alg, K, Data),
+    Bin = truncate(Truncation, Bin0),
+    verify_equal(Bin, OCRA);
+verify5(Data, K, Parsed, DataInput, OCRA, [{cw, CW}]) ->
+    Maybe = ver_check(K, Parsed, Data, OCRA),
+    ver_cw(Maybe, K, Parsed, DataInput, OCRA, CW);
+verify5(Data, K, Parsed, DataInput, OCRA, [{tw, TW}]) ->
+    Maybe = ver_check(K, Parsed, Data, OCRA),
+    ver_tw(Maybe, K , Parsed, DataInput, OCRA, TW, 1);
+verify5(Data, K, Parsed, DataInput, OCRA, [{tw, TW}, {cw, CW}]) ->
+    Maybe = ver_check(K, Parsed, Data, OCRA),
+    ver_tw_cw(ver_cw(Maybe, K, Parsed, DataInput, OCRA, CW),
+	      K, Parsed, DataInput, OCRA, CW, TW, 1).
+
+
+ver_check(K, {{Alg, Truncation}, _}, Data, OCRA) ->
+    truncate(Truncation, crypto:hmac(Alg, K, Data)) == OCRA.
+
+ver_tw_cw({ok, C}, _, _, _, _, _, _, _) -> {ok, C};
+ver_tw_cw({error, failed}, K, {_,DIP} =Parsed, #{t := <<T:64>>} = DataInput,
+	  OCRA, CW, TW, TS) when TS < TW ->
+    DI0 =DataInput#{t => <<(T + TS):64>>},
+    DI1 =DataInput#{t => <<(T + TS):64>>},
+    R = case ver_cw(ver_check(K,Parsed, data(DIP, DI0), OCRA),
+		    K, Parsed, DI0, OCRA, CW) of
+	    {ok, C} -> {ok, C};
+	    {error, failed} ->
+		ver_cw(ver_check(K, Parsed, data(DIP, DI1), OCRA),
+		       K, Parsed, DI1, OCRA, CW)
+	end,
+    ver_tw_cw(R, K, Parsed, DataInput, OCRA, CW, TW, TS + 1);
+ver_tw_cw(_,_,_,_,_,_,_,_) -> {error, failed}.
+
+
+ver_tw(true, _K, _Parsed, _DataInput, _OCRA, _TW, _TS) -> ok;
+ver_tw(false, K, {_, DIP}=Parsed, #{t := <<T:64>>} = DataInput, OCRA, TW, TS)
+  when TS < TW ->
+    Data0 = data(DIP, DataInput#{t => <<(T + TS):64>>}),
+    Data1 = data(DIP, DataInput#{t => <<(T - TS):64>>}),
+    Maybe = ver_check(K, Parsed, Data0, OCRA)
+	orelse ver_check(K, Parsed, Data1, OCRA),
+    ver_tw(Maybe, K, Parsed, DataInput, OCRA, TW, TS + 1);
+ver_tw(_, _K, _Parsed, _DataInput,_OCRA,_TW,_T) -> {error, failed}.
+
+ver_cw(true, _K, _Parsed, #{c := C}, _, _) -> {ok, C};
+ver_cw(false, K, Parsed, #{c := C} = DataInput0, OCRA, CW) when CW > 0 ->
+    {{Alg, Truncation}, DIP} = Parsed,
+    DataInput = DataInput0#{c => C + 1},
+    Bin = truncate(Truncation, crypto:hmac(Alg, K, data(DIP, DataInput))),
+    ver_cw(Bin == OCRA, K, Parsed, DataInput, OCRA, CW - 1);
+ver_cw(_, _, _, _, _, _) -> {error, failed}.
+
+verify_equal(A, A) -> ok;
+verify_equal(_,_) -> {error, failed}.
+
 
 %%====================================================================
 %% Internal functions
@@ -265,3 +351,26 @@ fmt_ts(Step) ->
     Seconds =
 	M:datetime_to_gregorian_seconds(M:universal_time()),
     <<(Seconds div Step):64>>.
+
+vopts(DI, #{cw := CW, tw := TW} = VO)
+  when is_integer(CW), CW > 0, is_integer(TW), TW > 0 ->
+    maps:size(VO) == 2
+	andalso   lists:member({c}, DI)
+	andalso lists:keymember(t,1,DI)
+	andalso [{tw, TW}, {cw, CW}];
+vopts(DI, #{cw := CW} = VO) when is_integer(CW), CW > 0 ->
+    maps:size(VO) == 1
+	andalso lists:member({c}, DI)
+	andalso (not lists:keymember(t,1,DI))
+	andalso [{cw, CW}];
+vopts(DI, #{tw := TW} = VO) when is_integer(TW), TW > 0 ->
+    maps:size(VO) == 1
+	andalso   lists:keymember(t,1,DI)
+	andalso (not lists:member({c}, DI))
+	andalso [{tw, TW}];
+vopts(DI, #{} = VO) ->
+    maps:size(VO) == 0
+	andalso (not lists:member({c}, DI))
+	andalso (not lists:keymember(t,1,DI))
+	andalso [];
+vopts(_,_) -> false.

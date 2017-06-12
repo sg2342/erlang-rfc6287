@@ -29,21 +29,35 @@
 	,mutual1s/1, mutual1c/1, mutual2s/1, mutual2c/1
 	]).
 
+-export([v_fail_invalid_suite/1, v_fail_invalid_key/1,
+	 v_fail_invalid_data_input/1,
+	 v_fail_invalid_verify_opts/1, v_failed/1]).
+
+-export([verify_ok/1, verify_cw_ok/1, verify_cw_failed/1,
+	 verify_tw_ok/1, verify_tw_failed/1,
+	 verify_tw_cw_ok/1, verify_tw_cw_failed/1]).
+
 -export([challenge_a/1, challenge_h/1, challenge_n/1, fail_invalid_suite/1,
 	 fail_invalid_key/1, fail_invalid_data_input/1,
 	 parse_timesteps/1, generate/1]).
-
 
 groups() ->
     [{test_vector, [parallel],
       [one_way1, one_way2, one_way3, one_way4, one_way5,
        mutual1c, mutual1s, mutual2c, mutual2s, signature1, signature2]}
+    ,{verify, [parallel],
+      [verify_ok, verify_cw_ok, verify_cw_failed, verify_tw_ok,
+       verify_tw_failed, verify_tw_cw_ok, verify_tw_cw_failed]}
+    ,{verify_fail, [parallel],
+      [v_fail_invalid_suite, v_fail_invalid_key, v_fail_invalid_verify_opts,
+       v_fail_invalid_data_input, v_failed]}
     ,{coverage, [parallel],
       [challenge_a, challenge_h, challenge_n, fail_invalid_suite,
        fail_invalid_key, fail_invalid_data_input,
        parse_timesteps, generate]}].
 
-all() -> [{group, test_vector}, {group, coverage}].
+all() -> [{group, test_vector}, {group, verify_fail}, {group, verify},
+	  {group, coverage}].
 
 
 init_per_suite(Config) ->
@@ -266,3 +280,85 @@ generate(_) ->
 				,q => <<"000000">>
 				,t => calc
 				}).
+
+v_fail_invalid_suite(_) ->
+    {error, invalid_suite} =
+	rfc6287:verify(?Key32, #{suite => <<"invalid">>}, <<"some">>, #{}).
+
+v_fail_invalid_key(_) ->
+    {error, invalid_key} =
+	rfc6287:verify(<<"invalid">>, #{suite => <<"OCRA-1:HOTP-SHA1-8:QH08">>
+				       ,q => <<"00000000">>}
+		      ,<<"99999999">>, #{}).
+
+v_fail_invalid_verify_opts(_) ->
+    {error, invalid_verify_opts} =
+	rfc6287:verify(?Key20, #{suite => <<"OCRA-1:HOTP-SHA1-8:QH08">>
+				,q => <<"00000000">>}
+		      ,<<"99999999">>, []).
+
+v_fail_invalid_data_input(_) ->
+    {error, invalid_data_input} =
+	rfc6287:verify(?Key20, #{suite => <<"OCRA-1:HOTP-SHA1-8:QH08">>
+				,q => <<"00000000">>
+				,t => calc}
+		      ,<<"99999999">>, #{}).
+
+v_failed(_) ->
+    {error, failed} =
+	rfc6287:verify(?Key20, #{suite => <<"OCRA-1:HOTP-SHA1-8:QH08">>
+				,q => <<"00000000">>}
+		      ,<<"99999999">>, #{}).
+
+
+verify_ok(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:QH08">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=>Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI),
+    ok = rfc6287:verify(?Key20, DI, OCRA, #{}).
+
+
+verify_cw_ok(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:C-QH08">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=> Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI#{c => 23}),
+    {ok, 23} = rfc6287:verify(?Key20, DI#{c => 20}, OCRA, #{cw => 10}).
+
+verify_cw_failed(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:C-QH08">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=> Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI#{c => 23}),
+    {error, failed} = rfc6287:verify(?Key20, DI#{c => 2}, OCRA, #{cw => 10}).
+
+verify_tw_ok(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:QH08-T">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=> Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI#{t => calc}),
+    ok = rfc6287:verify(?Key20, DI#{t => calc}, OCRA, #{tw => 5}).
+
+verify_tw_failed(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:QH08-T">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=> Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI#{t => <<0:64>>}),
+    {error, failed} = rfc6287:verify(?Key20, DI#{t => calc}, OCRA, #{tw => 5}).
+
+verify_tw_cw_ok(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:C-QH08-T">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=> Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI#{t => <<18:64>>, c => 23}),
+    {ok,23} = rfc6287:verify(?Key20, DI#{t => <<16:64>>, c=>20}, OCRA,
+			     #{cw=> 10, tw => 5}).
+
+verify_tw_cw_failed(_) ->
+    Suite = <<"OCRA-1:HOTP-SHA1-8:C-QH08-T">>,
+    {ok, Q} = rfc6287:challenge(Suite),
+    DI = #{suite=> Suite, q=> Q},
+    {ok, OCRA} = rfc6287:generate(?Key20, DI#{t => <<18:64>>, c => 23}),
+    {error, failed} = rfc6287:verify(?Key20, DI#{t => <<10:64>>, c=>20}, OCRA,
+				     #{cw=> 10, tw => 5}).
