@@ -1,16 +1,11 @@
 {application, rfc6287,
  [{description, "RFC6287 OCRA (OATH Challenge-Response Algorithm)"},
-  {vsn, "0.1.0"},
+  {vsn, "1.0.0"},
   {registered, []},
-  {applications,
-   [kernel,
-    stdlib,
-    crypto
-   ]},
-  {env,[]},
+  {applications, [kernel, stdlib, crypto]},
   {modules, [rfc6287]},
 
-  {maintainers, []},
-  {licenses, []},
-  {links, []}
+  {maintainers, ["Stefan Grundmann"]},
+  {licenses, ["BSD"]},
+  {links, [{"Github", "https://github.com/sg2342/erlang-rfc6287"}]}
  ]}.
