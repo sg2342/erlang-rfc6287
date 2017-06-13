@@ -14,3 +14,5 @@ Test
 -----
 
     $ rebar3 as test do dialyzer,ct,cover
+
+[![Build Status](https://travis-ci.org/sg2342/erlang-rfc6287.png)](https://travis-ci.org/sg2342/erlang-rfc6287)
